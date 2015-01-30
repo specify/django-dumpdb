@@ -28,7 +28,7 @@ from json import loads
 
 from django import VERSION
 from django.db import connection, transaction
-from django.db.models import get_apps, get_models
+from django.db.models import get_apps, get_models, TextField
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
 from django.core.management import color
@@ -136,11 +136,20 @@ def dump_table(table, fields, pk, converters):
 
 def get_db_prep_value_compatibility_closure(field):
     """ Version of field.get_db_prep_value compatible with < Django 1.2 """
-    def get_db_prep_value(value):
-        if VERSION < (1, 2):
-            return field.get_db_prep_value(value)
-        else:
-            return field.get_db_prep_value(value, connection=connection)
+    if connection.vendor == 'mysql' and isinstance(field, TextField):
+        def get_db_prep_value(value):
+            """In MySQL TEXT is treated as BLOB, so there is no
+            guarantee that it is not a bytestring which will blow up
+            the JSON encoding."""
+            if isinstance(value, unicode):
+                return value
+            return value and value.decode('utf-8')
+    else:
+        def get_db_prep_value(value):
+            if VERSION < (1, 2):
+                return field.get_db_prep_value(value)
+            else:
+                return field.get_db_prep_value(value, connection=connection)
     
     return get_db_prep_value
 
