@@ -37,7 +37,7 @@ HEADER = '# Django database dump'
 HEADER_RE = re.compile('#\sDjango database dump')
 
 qn = connection.ops.quote_name
-dumps = DjangoJSONEncoder(ensure_ascii=False).encode
+#dumps = DjangoJSONEncoder(ensure_ascii=False).encode
 
 class DumpRestoreError(Exception):
     pass
@@ -126,12 +126,36 @@ def dump_table(table, fields, pk, converters):
     fields_sql = ', '.join(qn(field) for field in fields)
     table_sql = qn(table)
     pk_sql = qn(pk)
-    yield '# %s' % dumps((table, fields))
+    yield "COPY %s (%s) FROM STDIN;" % (table, ', '.join(fields))
     cursor.execute('SELECT %s FROM %s ORDER BY %s' % (fields_sql, table_sql, pk_sql))
     for row in cursor:
         yield dumps([converter(value) for converter, value in zip(converters, row)])
-    yield ''
     cursor.close()
+    yield "\\."
+    if table != "django_session":
+        yield "SELECT setval(pg_get_serial_sequence('%s', '%s'), coalesce(max(%s),0) + 1, false) FROM %s;" % (
+            table, pk, pk, table)
+
+
+def dumps(values):
+    escaped = map(escape, values)
+    return '\t'.join(escaped)
+
+def escape(value):
+    if value is None:
+        return u'\\N'
+    if isinstance(value, unicode):
+        as_unicode = value
+    elif isinstance(value, str):
+        as_unicode = unicode(value)
+    else:
+        as_unicode = unicode(str(value))
+
+    return as_unicode \
+           .replace('\\', '\\\\') \
+           .replace('\n', '\\n') \
+           .replace('\r', '\\r') \
+           .replace('\t', '\\t')
 
 
 def get_db_prep_value_compatibility_closure(field):
@@ -167,10 +191,14 @@ def dump_all():
 
 
 def dump(file=sys.stdout):
-    file.write(HEADER + '\n\n')
+    file.write("START TRANSACTION;\n"
+               "SET CONSTRAINTS ALL DEFERRED;\n\n")
+    file.write("TRUNCATE\n")
+    file.write(',\n'.join((model._meta.db_table for model in get_all_models())))
+    file.write(';\n')
     for line in dump_all():
         file.write(line.encode('UTF-8') + '\n')
-
+    file.write("COMMIT;\n")
 
 # http://code.djangoproject.com/ticket/9964
 #@transaction.commit_on_success
