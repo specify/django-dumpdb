@@ -1,5 +1,8 @@
 I am modifying this package for use in migrating Specify data from MySQL to Postgres.
 
+Note: The django DEBUG setting should be set to False to prevent large memory consumption
+which is due, I think, to the logging of query info the db cursor objects.
+
 So far, it has been changed to produce output suitable for loading into a established
 postgres schema (e.g. created with `manage.py syncdb`). The command to load it with psql should be
 of the form:
